@@ -36,6 +36,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-geo@3"></script>
 <script>
 const GEO_URL='https://raw.githubusercontent.com/yasserius/bd-interactive-weather-map/master/small_bangladesh_geojson_adm2_64_districts_zillas.json';
 const districts=[
@@ -77,7 +78,53 @@ document.getElementById('userName').addEventListener('input',renderExport);
 document.getElementById('photo').addEventListener('change',e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{photoData=r.result;renderExport()};r.readAsDataURL(f)});document.getElementById('removePhoto').onclick=()=>{photoData='';document.getElementById('photo').value='';renderExport()};document.getElementById('makePreview').onclick=renderExport;
 function featureName(p){return p?.NAME_2||p?.NAME_1||p?.name||p?.NAME||p?.district||p?.District||p?.ADM2_EN||p?.shapeName||''}
 async function loadGeo(){try{const res=await fetch(GEO_URL);geoData=await res.json();renderExport()}catch(e){geoData=null;}}
-function renderExport(){const name=document.getElementById('userName').value.trim()||'SHUVRO';document.getElementById('author').textContent=name;const box=document.getElementById('exportMap');const list=document.getElementById('exportDistricts');if(list){const chosen=districts.filter(d=>selected.has(d.en));list.innerHTML=chosen.length?chosen.map(d=>`<span>${d.bn}</span>`).join(''):'<div class="district-empty">এখনও কোনো জেলা নির্বাচন করা হয়নি</div>'}const pct=Math.round(selected.size/64*100);const fill=document.getElementById('exportProgress');const val=document.getElementById('exportProgressValue');if(fill)fill.style.width=pct+'%';if(val)val.textContent=bn(pct)+'%';if(window.miniMap){window.miniMap.remove();window.miniMap=null}box.innerHTML='<div id="miniMap" style="height:100%;position:relative"></div>';if(geoData){window.miniMap=L.map('miniMap',{zoomControl:false,attributionControl:false,dragging:false,touchZoom:false,doubleClickZoom:false,scrollWheelZoom:false,keyboard:false});const clone=L.geoJSON(geoData,{style:f=>{const m=metaFor(featureName(f.properties));return {color:'#fff',weight:1,fillColor:m&&selected.has(m.en)?colors[theme]:'#dbe9e5',fillOpacity:1}}}).addTo(window.miniMap);window.miniMap.fitBounds(clone.getBounds(),{padding:[24,24]});if(photoData){const badge=document.createElement('div');badge.style.cssText='position:absolute;z-index:500;left:10px;bottom:10px;display:flex;align-items:center;gap:8px;background:#fff;padding:7px 10px;border-radius:12px;box-shadow:0 4px 18px #0002;font-size:13px;font-weight:600';badge.innerHTML=`<img src="${photoData}" style="width:38px;height:38px;border-radius:50%;object-fit:cover"><span>আমি ঘুরেছি ${bn(selected.size)}টি জেলা</span>`;document.getElementById('miniMap').appendChild(badge)}}}
+function renderExport(){
+  const name=document.getElementById('userName').value.trim()||'SHUVRO';
+  document.getElementById('author').textContent=name;
+  const list=document.getElementById('exportDistricts');
+  if(list){
+    const chosen=districts.filter(d=>selected.has(d.en));
+    list.innerHTML=chosen.length?chosen.map(d=>`<span>${d.bn}</span>`).join(''):'<div class="district-empty">এখনও কোনো জেলা নির্বাচন করা হয়নি</div>';
+  }
+  const pct=Math.round(selected.size/64*100);
+  const fill=document.getElementById('exportProgress');
+  const val=document.getElementById('exportProgressValue');
+  if(fill)fill.style.width=pct+'%';
+  if(val)val.textContent=bn(pct)+'%';
+  const box=document.getElementById('exportMap');
+  box.innerHTML='';
+  if(!geoData || !window.d3){
+    box.innerHTML='<div style="height:100%;display:grid;place-items:center;color:#64748b;font-weight:600">মানচিত্র লোড হচ্ছে...</div>';
+    return;
+  }
+  const W=700,H=540;
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('xmlns','http://www.w3.org/2000/svg');
+  svg.setAttribute('width',W);svg.setAttribute('height',H);svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.style.cssText='display:block;width:100%;height:100%;background:linear-gradient(145deg,#f3f8f7,#e6f2ee);';
+  const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+  const projection=d3.geoMercator().fitSize([W-70,H-60],geoData);
+  const path=d3.geoPath(projection);
+  geoData.features.forEach(feature=>{
+    const m=metaFor(featureName(feature.properties));
+    const pathD=path(feature);
+    if(!pathD)return;
+    const el=document.createElementNS('http://www.w3.org/2000/svg','path');
+    el.setAttribute('d',pathD);
+    el.setAttribute('fill',m&&selected.has(m.en)?colors[theme]:'#dbe9e5');
+    el.setAttribute('stroke','#ffffff');
+    el.setAttribute('stroke-width','1.6');
+    el.setAttribute('vector-effect','non-scaling-stroke');
+    g.appendChild(el);
+  });
+  svg.appendChild(g);box.appendChild(svg);
+  if(photoData){
+    const badge=document.createElement('div');
+    badge.style.cssText='position:absolute;z-index:5;left:16px;bottom:16px;display:flex;align-items:center;gap:8px;background:#fff;padding:7px 10px;border-radius:12px;box-shadow:0 4px 18px #0002;font-size:13px;font-weight:600';
+    badge.innerHTML=`<img src="${photoData}" style="width:38px;height:38px;border-radius:50%;object-fit:cover"><span>আমি ঘুরেছি ${bn(selected.size)}টি জেলা</span>`;
+    box.appendChild(badge);
+  }
+}
 async function capture(type){const node=document.getElementById('capture');const canvas=await html2canvas(node,{scale:2,useCORS:true,backgroundColor:'#fff'});if(type==='pdf'){const {jsPDF}=window.jspdf;const pdf=new jsPDF({orientation:'portrait',unit:'px',format:[canvas.width,canvas.height]});pdf.addImage(canvas.toDataURL('image/png'),'PNG',0,0,canvas.width,canvas.height);pdf.save('amar-bangladesh-travel-map.pdf')}else{const a=document.createElement('a');a.download='amar-bangladesh-travel-map.'+type;a.href=canvas.toDataURL(type==='jpg'?'image/jpeg':'image/png',.95);a.click()}}
 document.getElementById('png').onclick=()=>capture('png');document.getElementById('jpg').onclick=()=>capture('jpg');document.getElementById('pdf').onclick=()=>capture('pdf');
 renderList();updateCount();loadGeo();
